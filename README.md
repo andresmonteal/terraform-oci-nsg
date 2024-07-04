@@ -1,80 +1,168 @@
-# OCI Network Security Group Terraform Module
+# OCI Compartment Terraform Module
 
-This module provisions a Network Security Group (NSG) in Oracle Cloud Infrastructure (OCI).
+This Terraform module provisions an Oracle Cloud Infrastructure (OCI) compartment and its related resources.
 
-## Variables
+## Table of Contents
 
-### `tenancy_ocid`
+- [Prerequisites](#prerequisites)
+- [Usage](#usage)
+- [Files](#files)
+- [Inputs](#inputs)
+- [Outputs](#outputs)
+- [Contributing](#contributing)
+- [License](#license)
 
-- **Description:** (Required) (Updatable) The OCID of the root compartment.
-- **Type:** string
-- **Default:** null
+## Prerequisites
 
-### `compartment_id`
+- [Terraform](https://www.terraform.io/downloads.html) 0.12 or later
+- Oracle Cloud Infrastructure account credentials
 
-- **Description:** The default compartment OCID to use for resources (unless otherwise specified).
-- **Type:** string
-- **Default:** null
+## Usage
 
-### `compartment`
+To use this module, include the following code in your Terraform configuration:
 
-- **Description:** Compartment name where to create all resources.
-- **Type:** string
-- **Default:** null
+```hcl
+module "oci_compartment" {
+  source = "path_to_this_module"
 
-### `vcn_id`
+  # Define the necessary variables
+  tenancy_ocid     = var.tenancy_ocid
+  compartment_id   = var.compartment_id
+  compartment      = var.compartment
+  name             = var.name
+  freeform_tags    = var.freeform_tags
+  defined_tags     = var.defined_tags
+}
+```
 
-- **Description:** The VCN ID where the Security List(s) should be created.
-- **Type:** string
-- **Default:** null
+## Files
 
-### `vcn_name`
+- `variables.tf`: Defines input variables.
+- `main.tf`: Main Terraform configuration for setting up the compartment.
+- `output.tf`: Defines output values to be exported.
+- `subfolder/main.tf`: Configuration for DRG attachment.
 
-- **Description:** The VCN name where the Security List(s) should be created.
-- **Type:** string
-- **Default:** null
+### variables.tf
 
-### `freeform_tags`
+```hcl
+variable "tenancy_ocid" {
+  description = "(Required) (Updatable) The OCID of the root compartment."
+  type        = string
+  default     = null
+}
 
-- **Description:** Simple key-value pairs to tag the resources created using freeform tags.
-- **Type:** map(string)
-- **Default:** null
+variable "compartment_id" {
+  description = "Compartment id where to create all resources."
+  type        = string
+  default     = null
+}
 
-### `defined_tags`
+variable "compartment" {
+  description = "Compartment name where to create all resources."
+  type        = string
+  default     = null
+}
 
-- **Description:** Predefined and scoped to a namespace to tag the resources created using defined tags.
-- **Type:** map(string)
-- **Default:** null
+variable "name" {
+  description = "(Required) The name you assign to the tag namespace during creation. It must be unique across all tag namespaces in the tenancy and cannot be changed."
+  type        = string
+}
 
-### `display_name`
+variable "freeform_tags" {
+  description = "(Optional) (Updatable) Free-form tags for this resource. Each tag is a simple key-value pair with no predefined name, type, or namespace."
+  type        = map(any)
+  default     = null
+}
 
-- **Description:** (Optional) (Updatable) A user-friendly name. Does not have to be unique, and it's changeable. Avoid entering confidential information.
-- **Type:** string
-- **Default:** null
+variable "defined_tags" {
+  description = "(Optional) (Updatable) Defined tags for this resource. Each key is predefined and scoped to a namespace."
+  type        = map(any)
+  default     = null
+}
+```
 
-### `rules`
+### main.tf
 
-- **Description:** Security rules for the NSG.
-- **Type:** object
-  - **`ingress_rules`**:
-    - **description:** string
-    - **stateless:** optional(bool, false)
-    - **protocol:** optional(string, "6")
-    - **src:** string
-    - **src_type:** optional(string, "CIDR_BLOCK")
-    - **src_port:** optional(object({min = number, max = number}), null)
-    - **dst_port:** optional(object({min = number, max = number}), null)
-    - **icmp_type:** optional(number, null)
-    - **icmp_code:** optional(number, null)
-  - **`egress_rules`**:
-    - **description:** string
-    - **stateless:** optional(bool, false)
-    - **protocol:** optional(string, "6")
-    - **dst:** string
-    - **dst_type:** optional(string, "CIDR_BLOCK")
-    - **src_port:** optional(object({min = number, max = number}), null)
-    - **dst_port:** optional(object({min = number, max = number}), null)
-    - **icmp_type:** optional(number, null)
-    - **icmp_code:** optional(number, null)
-- **Default:** null
+```hcl
+locals {
+  default_freeform_tags = {
+    terraformed = "Please do not edit manually"
+    module      = "oracle-terraform-oci-compartment"
+  }
+  merged_freeform_tags = merge(var.freeform_tags, local.default_freeform_tags)
+  compartment_id       = try(data.oci_identity_compartments.compartment[0].compartments[0].id, var.compartment_id)
+}
 
+resource "oci_identity_compartment" "main" {
+  compartment_id = local.compartment_id
+
+  defined_tags  = var.defined_tags
+  display_name  = var.name
+  freeform_tags = local.merged_freeform_tags
+
+  timeouts {
+    create = "20m"
+    update = "20m"
+    delete = "20m"
+  }
+}
+```
+
+### output.tf
+
+```hcl
+output "id" {
+  description = "Resource id"
+  value       = oci_identity_compartment.main.id
+}
+
+output "compartment_id" {
+  description = "Resource compartment_id id"
+  value       = oci_identity_compartment.main.compartment_id
+}
+```
+
+### subfolder/main.tf
+
+```hcl
+resource "oci_core_drg_attachment" "main" {
+  drg_id = local.drg_id
+
+  defined_tags  = var.defined_tags
+  display_name  = "att-${var.drg_name}"
+  freeform_tags = local.merged_freeform_tags
+  network_details {
+    id   = local.vcn_id
+    type = "VCN"
+
+    route_table_id = var.route_table_id
+    vcn_route_type = "VCN_CIDRS"
+  }
+}
+```
+
+## Inputs
+
+| Name            | Description                                                                 | Type       | Default | Required |
+|-----------------|-----------------------------------------------------------------------------|------------|---------|----------|
+| tenancy_ocid    | (Required) (Updatable) The OCID of the root compartment.                    | `string`   | `null`  | yes      |
+| compartment_id  | Compartment id where to create all resources.                               | `string`   | `null`  | yes      |
+| compartment     | Compartment name where to create all resources.                             | `string`   | `null`  | yes      |
+| name            | (Required) The name you assign to the tag namespace during creation.        | `string`   | n/a     | yes      |
+| freeform_tags   | (Optional) (Updatable) Free-form tags for this resource.                    | `map(any)` | `null`  | no       |
+| defined_tags    | (Optional) (Updatable) Defined tags for this resource.                      | `map(any)` | `null`  | no       |
+
+## Outputs
+
+| Name           | Description                              |
+|----------------|------------------------------------------|
+| id             | The ID of the created compartment        |
+| compartment_id | The compartment ID of the created compartment  |
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request for any bugs, feature requests, or enhancements.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
